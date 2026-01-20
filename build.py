@@ -8,6 +8,14 @@ import sys
 import os
 import shutil
 
+def find_libusb_dll():
+    """Find the libusb DLL path"""
+    try:
+        import libusb._platform
+        return libusb._platform.DLL_PATH
+    except:
+        return None
+
 def main():
     print("=" * 50)
     print("  Building Thermal Print Server Executable")
@@ -30,7 +38,14 @@ def main():
     for folder in ['build', 'dist']:
         if os.path.exists(folder):
             print(f"Cleaning {folder}/...")
-            shutil.rmtree(folder)
+            try:
+                shutil.rmtree(folder)
+            except PermissionError:
+                print(f"  Warning: Could not clean {folder}/ - files may be in use")
+                print(f"  Trying to continue anyway...")
+    
+    # Find libusb DLL
+    libusb_dll = find_libusb_dll()
     
     # Build command
     build_cmd = [
@@ -46,15 +61,26 @@ def main():
         '--hidden-import', 'usb.backend',
         '--hidden-import', 'usb.backend.libusb1',
         '--hidden-import', 'libusb',
+        '--hidden-import', 'libusb._platform',
         '--hidden-import', 'zeroconf',
         '--hidden-import', 'serial',
         '--hidden-import', 'serial.tools.list_ports',
+        '--hidden-import', 'win32print',
+        '--hidden-import', 'win32api',
         # Collect all data from these packages
         '--collect-all', 'libusb',
         '--collect-all', 'zeroconf',
-        # Main script
-        'print_server.py'
     ]
+    
+    # Add libusb DLL explicitly if found
+    if libusb_dll and os.path.exists(libusb_dll):
+        print(f"✓ Found libusb DLL: {libusb_dll}")
+        build_cmd.extend(['--add-binary', f'{libusb_dll};.'])
+    else:
+        print("⚠ libusb DLL not found - USB printing may not work")
+    
+    # Main script
+    build_cmd.append('print_server.py')
     
     print()
     print("Building executable...")

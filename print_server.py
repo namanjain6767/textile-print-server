@@ -6,7 +6,7 @@ Exposes HTTP API for network printing from any device.
 """
 
 # Version info for auto-update
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 GITHUB_REPO = "namanjain6767/textile-print-server"
 UPDATE_CHECK_ENABLED = True
 
@@ -24,14 +24,34 @@ from urllib.parse import urlparse, parse_qs
 import threading
 
 # Set up libusb DLL path for pyusb on Windows
-try:
-    import libusb._platform
-    dll_path = os.path.dirname(libusb._platform.DLL_PATH)
-    os.environ['PATH'] = dll_path + os.pathsep + os.environ.get('PATH', '')
-    # Also set for libusb1 backend
-    os.environ['LIBUSB_LIBRARY_PATH'] = libusb._platform.DLL_PATH
-except:
-    pass
+def setup_libusb():
+    """Setup libusb DLL path for both source and frozen (exe) execution"""
+    try:
+        # When running as exe, check if DLL is in the exe directory
+        if getattr(sys, 'frozen', False):
+            # Running as compiled exe
+            exe_dir = os.path.dirname(sys.executable)
+            possible_paths = [
+                os.path.join(exe_dir, 'libusb-1.0.dll'),
+                os.path.join(exe_dir, '_internal', 'libusb', '_platform', 'libusb-1.0.dll'),
+            ]
+            for dll_path in possible_paths:
+                if os.path.exists(dll_path):
+                    os.environ['PATH'] = os.path.dirname(dll_path) + os.pathsep + os.environ.get('PATH', '')
+                    os.environ['LIBUSB_LIBRARY_PATH'] = dll_path
+                    return True
+        
+        # Try the normal libusb package
+        import libusb._platform
+        dll_path = os.path.dirname(libusb._platform.DLL_PATH)
+        os.environ['PATH'] = dll_path + os.pathsep + os.environ.get('PATH', '')
+        os.environ['LIBUSB_LIBRARY_PATH'] = libusb._platform.DLL_PATH
+        return True
+    except Exception as e:
+        print(f"  (libusb setup: {e})")
+        return False
+
+setup_libusb()
 
 # ESC/POS Commands
 ESC = 0x1B
@@ -214,17 +234,36 @@ def find_printer_windows():
         # Get default printer or find thermal printer
         printers = win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)
         
+        # Keywords that indicate a thermal/receipt printer
+        thermal_keywords = ['thermal', 'pos', 'receipt', 'h58', 'hop', '58mm', '80mm', 'xprinter', 'epson tm', 'star tsp']
+        
+        # Keywords that indicate NOT a thermal printer (skip these)
+        skip_keywords = ['onenote', 'pdf', 'xps', 'fax', 'microsoft', 'adobe', 'virtual', 'print to', 'send to']
+        
         thermal_printer = None
         for p in printers:
-            name = p[2]
-            # Look for common thermal printer names
-            if any(keyword in name.lower() for keyword in ['thermal', 'pos', 'receipt', 'h58', 'hop', '58mm']):
-                thermal_printer = name
+            name = p[2].lower()
+            
+            # Skip known non-thermal printers
+            if any(keyword in name for keyword in skip_keywords):
+                continue
+            
+            # Look for thermal printer keywords
+            if any(keyword in name for keyword in thermal_keywords):
+                thermal_printer = p[2]
                 break
         
-        if not thermal_printer and printers:
-            # Use first printer as fallback
-            thermal_printer = printers[0][2]
+        # If no thermal printer found by keywords, try to find any USB/Generic printer
+        if not thermal_printer:
+            for p in printers:
+                name = p[2].lower()
+                # Skip known non-thermal printers
+                if any(keyword in name for keyword in skip_keywords):
+                    continue
+                # Accept USB or Generic printers
+                if 'usb' in name or 'generic' in name:
+                    thermal_printer = p[2]
+                    break
         
         if thermal_printer:
             printer_name = thermal_printer
@@ -232,7 +271,8 @@ def find_printer_windows():
             print(f"✓ Connected to Windows printer: {thermal_printer}")
             return True
         else:
-            print("✗ No Windows printer found")
+            print("✗ No thermal printer found (skipped non-thermal printers like OneNote, PDF, etc.)")
+            print("  Please install WinUSB driver using Zadig for direct USB access")
             return False
             
     except ImportError:
