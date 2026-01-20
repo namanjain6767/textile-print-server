@@ -1,0 +1,6 @@
+pyusb>=1.2.0
+libusb>=1.0.26
+zeroconf>=0.100.0
+pyserial>=3.5
+pywin32>=306; sys_platform == "win32"
+pyinstaller>=6.0.0
