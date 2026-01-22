@@ -6,7 +6,7 @@ Exposes HTTP API for network printing from any device.
 """
 
 # Version info for auto-update
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 GITHUB_REPO = "namanjain6767/textile-print-server"
 UPDATE_CHECK_ENABLED = True
 
@@ -357,7 +357,7 @@ def format_line(left: str, right: str, width: int = 12) -> str:
     return left + ' ' * spaces + right
 
 def print_receipt(entry: dict, settings: dict = None, is_last: bool = False):
-    """Print a single receipt"""
+    """Print a single receipt - supports both old and new multi-color format"""
     if settings is None:
         settings = {}
     
@@ -380,41 +380,88 @@ def print_receipt(entry: dict, settings: dict = None, is_last: bool = False):
         data.extend(COMMANDS['ALIGN_LEFT'])
         data.extend(COMMANDS['LINE_FEED'])
     
+    # Get serial number (support both 'serialNumber' and 'baleNumber')
+    serial_number = entry.get('serialNumber') or entry.get('baleNumber', 0)
+    
     # Header: Marka+Lot and Serial #
     data.extend(COMMANDS['BOLD_ON'])
     data.extend(COMMANDS['DOUBLE_SIZE_ON'])
-    header = format_line(entry['markaLotNumber'], f"#{entry['serialNumber']}", 12)
+    header = format_line(entry['markaLotNumber'], f"#{serial_number}", 12)
     data.extend(header.encode('utf-8'))
     data.extend(COMMANDS['LINE_FEED'])
     data.extend(COMMANDS['NORMAL_SIZE'])
     data.extend(COMMANDS['BOLD_OFF'])
     
-    # Color
-    data.extend(entry['color'].encode('utf-8'))
-    data.extend(COMMANDS['LINE_FEED'])
-    
-    # Separator
-    data.extend(b'------------------------')
-    data.extend(COMMANDS['LINE_FEED'])
-    
-    # Numbers (right-aligned)
-    data.extend(COMMANDS['ALIGN_RIGHT'])
-    for num in entry['numbers']:
-        data.extend(f"{num:.2f}".encode('utf-8'))
+    # Check if new multi-color format or old single-color format
+    if 'colors' in entry and isinstance(entry['colors'], list):
+        # New multi-color format
+        for color_group in entry['colors']:
+            color_name = color_group.get('color', '')
+            numbers = color_group.get('numbers', [])
+            color_total = color_group.get('total', 0)
+            
+            # Color name
+            data.extend(color_name.encode('utf-8'))
+            data.extend(COMMANDS['LINE_FEED'])
+            
+            # Separator
+            data.extend(b'------------------------')
+            data.extend(COMMANDS['LINE_FEED'])
+            
+            # Numbers (right-aligned)
+            data.extend(COMMANDS['ALIGN_RIGHT'])
+            for num in numbers:
+                data.extend(f"{num:.2f}".encode('utf-8'))
+                data.extend(COMMANDS['LINE_FEED'])
+            
+            # Color total line
+            data.extend(b'--------')
+            data.extend(COMMANDS['LINE_FEED'])
+            data.extend(f"{color_total:.2f}".encode('utf-8'))
+            data.extend(COMMANDS['LINE_FEED'])
+            data.extend(COMMANDS['ALIGN_LEFT'])
+            data.extend(COMMANDS['LINE_FEED'])
+        
+        # Grand total for all colors
+        grand_total = entry.get('total', 0)
+        data.extend(b'========================')
         data.extend(COMMANDS['LINE_FEED'])
-    
-    # Total line
-    data.extend(b'--------')
-    data.extend(COMMANDS['LINE_FEED'])
-    data.extend(COMMANDS['BOLD_ON'])
-    data.extend(COMMANDS['DOUBLE_SIZE_ON'])
-    data.extend(f"{entry['total']:.2f}".encode('utf-8'))
-    data.extend(COMMANDS['LINE_FEED'])
-    data.extend(COMMANDS['NORMAL_SIZE'])
-    data.extend(COMMANDS['BOLD_OFF'])
-    
-    # Reset alignment
-    data.extend(COMMANDS['ALIGN_LEFT'])
+        data.extend(COMMANDS['BOLD_ON'])
+        data.extend(COMMANDS['DOUBLE_SIZE_ON'])
+        data.extend(COMMANDS['ALIGN_RIGHT'])
+        data.extend(f"{grand_total:.2f}".encode('utf-8'))
+        data.extend(COMMANDS['LINE_FEED'])
+        data.extend(COMMANDS['NORMAL_SIZE'])
+        data.extend(COMMANDS['BOLD_OFF'])
+        data.extend(COMMANDS['ALIGN_LEFT'])
+    else:
+        # Old single-color format (backward compatibility)
+        # Color
+        data.extend(entry.get('color', '').encode('utf-8'))
+        data.extend(COMMANDS['LINE_FEED'])
+        
+        # Separator
+        data.extend(b'------------------------')
+        data.extend(COMMANDS['LINE_FEED'])
+        
+        # Numbers (right-aligned)
+        data.extend(COMMANDS['ALIGN_RIGHT'])
+        for num in entry.get('numbers', []):
+            data.extend(f"{num:.2f}".encode('utf-8'))
+            data.extend(COMMANDS['LINE_FEED'])
+        
+        # Total line
+        data.extend(b'--------')
+        data.extend(COMMANDS['LINE_FEED'])
+        data.extend(COMMANDS['BOLD_ON'])
+        data.extend(COMMANDS['DOUBLE_SIZE_ON'])
+        data.extend(f"{entry.get('total', 0):.2f}".encode('utf-8'))
+        data.extend(COMMANDS['LINE_FEED'])
+        data.extend(COMMANDS['NORMAL_SIZE'])
+        data.extend(COMMANDS['BOLD_OFF'])
+        
+        # Reset alignment
+        data.extend(COMMANDS['ALIGN_LEFT'])
     
     # Date at bottom (if enabled)
     if show_date:
