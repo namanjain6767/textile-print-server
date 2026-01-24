@@ -10,10 +10,18 @@ A cross-platform Python print server that allows any device on your network to p
 - mDNS support - access via `printserver.local`
 - Works with any browser/device on the same network
 - No USB drivers needed on mobile devices
+- Auto-start on boot (Linux systemd service)
 
 ## Quick Start
 
-### Windows
+### Windows (Recommended: Use Pre-built EXE)
+
+1. Download `ThermalPrintServer.exe` from the releases
+2. Connect your thermal printer via USB
+3. Run `ThermalPrintServer.exe`
+4. Done! Access at `http://YOUR-IP:9100`
+
+### Windows (From Source)
 
 1. Install Python 3.8+ from https://python.org
 
@@ -30,34 +38,72 @@ pip install -r requirements.txt
 python print_server.py
 ```
 
-### Linux
+### Linux (Recommended: Auto-Install Script)
 
-1. Install Python 3.8+ (usually pre-installed)
+The installer automatically:
+- Installs Python and dependencies
+- Sets up USB permissions (udev rules)
+- Creates a systemd service for auto-start
+- Configures everything for your printer
 
-2. Navigate to the print-server folder and set up virtual environment:
+```bash
+# Download and run installer
+cd print-server
+sudo ./install_linux.sh
+```
+
+After installation:
+```bash
+# Start the service
+sudo systemctl start thermal-print-server
+
+# Check status
+thermal-print-status
+
+# View logs
+journalctl -u thermal-print-server -f
+```
+
+### Linux (Quick Run - No Install)
+
+For testing without installing as a service:
 ```bash
 cd print-server
-python -m venv venv
+chmod +x run_linux.sh
+./run_linux.sh
+```
+
+### Linux (Manual Setup)
+
+1. Install dependencies:
+```bash
+# Debian/Ubuntu
+sudo apt install python3 python3-pip python3-venv libusb-1.0-0
+
+# Fedora/RHEL
+sudo dnf install python3 python3-pip libusb1
+
+# Arch Linux
+sudo pacman -S python python-pip libusb
+```
+
+2. Set up virtual environment:
+```bash
+cd print-server
+python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-3. Add udev rules for USB printer access (run once):
+3. Add udev rules for USB printer access:
 ```bash
-sudo tee /etc/udev/rules.d/99-thermal-printer.rules << EOF
-SUBSYSTEM=="usb", ATTR{idVendor}=="0483", MODE="0666"
-SUBSYSTEM=="usb", ATTR{idVendor}=="0416", MODE="0666"
-SUBSYSTEM=="usb", ATTR{idVendor}=="154f", MODE="0666"
-SUBSYSTEM=="usb", ATTR{idVendor}=="04b8", MODE="0666"
-SUBSYSTEM=="usb", ATTR{idVendor}=="6868", MODE="0666"
-SUBSYSTEM=="usb", ATTR{idVendor}=="0456", MODE="0666"
-EOF
-sudo udevadm control --reload-rules
+sudo ./install_linux.sh
+# Or manually add rules - see install_linux.sh for full list
 ```
 
 4. Run the server:
 ```bash
-python print_server.py
+./venv/bin/python print_server.py
 ```
 
 ## Usage
