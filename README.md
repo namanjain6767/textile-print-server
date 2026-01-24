@@ -43,13 +43,14 @@ python print_server.py
 The installer automatically:
 - Installs Python and dependencies
 - Sets up USB permissions (udev rules)
+- **Blacklists the `usblp` kernel module** (allows direct USB access like Zadig/WinUSB on Windows)
 - Creates a systemd service for auto-start
 - Configures everything for your printer
 
 ```bash
-# Download and run installer
-cd print-server
-sudo ./install_linux.sh
+# Navigate to linux folder and run installer
+cd print-server/linux
+sudo ./install.sh
 ```
 
 After installation:
@@ -68,9 +69,9 @@ journalctl -u thermal-print-server -f
 
 For testing without installing as a service:
 ```bash
-cd print-server
-chmod +x run_linux.sh
-./run_linux.sh
+cd print-server/linux
+chmod +x run.sh
+./run.sh
 ```
 
 ### Linux (Manual Setup)
@@ -97,8 +98,8 @@ pip install -r requirements.txt
 
 3. Add udev rules for USB printer access:
 ```bash
-sudo ./install_linux.sh
-# Or manually add rules - see install_linux.sh for full list
+sudo ./linux/install.sh
+# Or manually add rules - see linux/install.sh for full list
 ```
 
 4. Run the server:
@@ -171,12 +172,25 @@ Send raw ESC/POS bytes:
 ### Windows: "Printer not found"
 - Make sure the printer is connected and turned on
 - Check Device Manager for the printer
-- Try installing the manufacturer's driver
+- **Use Zadig to install WinUSB driver** (required for USB access):
+  1. Download Zadig from https://zadig.akeo.ie/
+  2. Connect printer and open Zadig
+  3. Select your printer from the dropdown
+  4. Set driver to WinUSB and click "Replace Driver"
 
-### Linux: "Access denied"
-- Run the udev rules command above
+### Linux: "Access denied" or "Resource busy"
+- The installer automatically blacklists the `usblp` kernel module
+- If you installed manually, blacklist it yourself:
+  ```bash
+  sudo tee /etc/modprobe.d/thermal-printer-blacklist.conf << EOF
+  blacklist usblp
+  EOF
+  sudo rmmod usblp 2>/dev/null  # Unload if currently loaded
+  sudo update-initramfs -u      # Make permanent
+  ```
+- Run the udev rules command from the installer
 - Add your user to the `lp` group: `sudo usermod -a -G lp $USER`
-- Log out and back in
+- Log out and back in (or reboot)
 
 ### "No module named win32print"
 ```bash

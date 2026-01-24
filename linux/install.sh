@@ -13,6 +13,10 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Get script directory (to find print_server.py in parent folder)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PARENT_DIR="$(dirname "$SCRIPT_DIR")"
+
 echo -e "${BLUE}"
 echo "=================================================="
 echo "   Thermal Print Server - Linux Installer"
@@ -21,7 +25,7 @@ echo -e "${NC}"
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
-    echo -e "${RED}Please run as root (sudo ./install_linux.sh)${NC}"
+    echo -e "${RED}Please run as root (sudo ./install.sh)${NC}"
     exit 1
 fi
 
@@ -52,7 +56,7 @@ else
 fi
 
 echo ""
-echo -e "${BLUE}[1/6] Installing system dependencies...${NC}"
+echo -e "${BLUE}[1/7] Installing system dependencies...${NC}"
 
 case $PKG_MANAGER in
     apt)
@@ -73,19 +77,32 @@ esac
 echo -e "${GREEN}✓ System dependencies installed${NC}"
 
 echo ""
-echo -e "${BLUE}[2/6] Creating installation directory...${NC}"
+echo -e "${BLUE}[2/7] Creating installation directory...${NC}"
 
 mkdir -p "$INSTALL_DIR"
-cp print_server.py "$INSTALL_DIR/"
-cp requirements.txt "$INSTALL_DIR/" 2>/dev/null || echo "pyusb>=1.2.1
+
+# Copy print_server.py from parent directory
+if [ -f "$PARENT_DIR/print_server.py" ]; then
+    cp "$PARENT_DIR/print_server.py" "$INSTALL_DIR/"
+else
+    echo -e "${RED}Error: print_server.py not found in $PARENT_DIR${NC}"
+    exit 1
+fi
+
+# Copy or create requirements.txt
+if [ -f "$PARENT_DIR/requirements.txt" ]; then
+    cp "$PARENT_DIR/requirements.txt" "$INSTALL_DIR/"
+else
+    echo "pyusb>=1.2.1
 pyserial>=3.5
 zeroconf>=0.131.0" > "$INSTALL_DIR/requirements.txt"
+fi
 
 chown -R "$ACTUAL_USER:$ACTUAL_USER" "$INSTALL_DIR"
 echo -e "${GREEN}✓ Created $INSTALL_DIR${NC}"
 
 echo ""
-echo -e "${BLUE}[3/6] Setting up Python virtual environment...${NC}"
+echo -e "${BLUE}[3/7] Setting up Python virtual environment...${NC}"
 
 cd "$INSTALL_DIR"
 sudo -u "$ACTUAL_USER" python3 -m venv venv
@@ -95,12 +112,45 @@ sudo -u "$ACTUAL_USER" ./venv/bin/pip install -r requirements.txt
 echo -e "${GREEN}✓ Python environment ready${NC}"
 
 echo ""
-echo -e "${BLUE}[4/6] Installing USB printer rules...${NC}"
+echo -e "${BLUE}[4/7] Blacklisting usblp kernel module...${NC}"
+
+# The usblp kernel module claims USB printers before libusb can access them
+# We need to blacklist it so pyusb can communicate with the printer directly
+# (This is similar to using Zadig/WinUSB on Windows)
+
+cat > /etc/modprobe.d/thermal-printer-blacklist.conf << 'EOF'
+# Blacklist usblp module to allow libusb direct access to thermal printers
+# This is required for pyusb to communicate with USB thermal printers
+# Similar to using Zadig/WinUSB driver replacement on Windows
+blacklist usblp
+EOF
+
+# Unload usblp if currently loaded
+if lsmod | grep -q usblp; then
+    echo "Unloading usblp module..."
+    rmmod usblp 2>/dev/null || true
+fi
+
+# Update initramfs to make blacklist permanent
+if command -v update-initramfs &> /dev/null; then
+    update-initramfs -u 2>/dev/null || true
+elif command -v dracut &> /dev/null; then
+    dracut --force 2>/dev/null || true
+fi
+
+echo -e "${GREEN}✓ usblp module blacklisted (libusb will have direct access)${NC}"
+
+echo ""
+echo -e "${BLUE}[5/7] Installing USB printer udev rules...${NC}"
 
 # Create udev rules for common thermal printers
 cat > /etc/udev/rules.d/99-thermal-printer.rules << 'EOF'
 # Thermal Printer USB Rules
 # Allows non-root users to access USB thermal printers
+# Also prevents usblp from claiming the device
+
+# Unbind from usblp driver if attached (backup in case blacklist doesn't work)
+ACTION=="add", SUBSYSTEM=="usb", ATTR{bDeviceClass}=="07", RUN+="/bin/sh -c 'echo $kernel > /sys/bus/usb/drivers/usblp/unbind 2>/dev/null || true'"
 
 # Generic Printer Class (Class 7)
 SUBSYSTEM=="usb", ATTR{bDeviceClass}=="07", MODE="0666", GROUP="plugdev"
@@ -154,7 +204,7 @@ udevadm trigger
 echo -e "${GREEN}✓ USB rules installed${NC}"
 
 echo ""
-echo -e "${BLUE}[5/6] Creating systemd service...${NC}"
+echo -e "${BLUE}[6/7] Creating systemd service...${NC}"
 
 cat > /etc/systemd/system/${SERVICE_NAME}.service << EOF
 [Unit]
@@ -184,7 +234,7 @@ systemctl enable ${SERVICE_NAME}
 echo -e "${GREEN}✓ Systemd service created${NC}"
 
 echo ""
-echo -e "${BLUE}[6/6] Creating helper scripts...${NC}"
+echo -e "${BLUE}[7/7] Creating helper scripts...${NC}"
 
 # Create start script
 cat > "$INSTALL_DIR/start.sh" << 'EOF'

@@ -4,8 +4,10 @@
 # Use this for testing without installing as a service
 #
 
+# Get script directory and parent directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+PARENT_DIR="$(dirname "$SCRIPT_DIR")"
+cd "$PARENT_DIR"
 
 # Colors
 GREEN='\033[0;32m'
@@ -30,7 +32,7 @@ fi
 # Check for USB permissions
 if [ ! -f "/etc/udev/rules.d/99-thermal-printer.rules" ]; then
     echo -e "${YELLOW}Warning: USB rules not installed.${NC}"
-    echo "For USB printer access, run: sudo ./install_linux.sh"
+    echo "For USB printer access, run: sudo ./linux/install.sh"
     echo "Or run this script with sudo for direct USB access."
     echo ""
 fi
